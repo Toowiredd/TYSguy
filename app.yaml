@@ -6,7 +6,7 @@ services:
       branch: main
       repo_clone_url: https://github.com/Toowiredd/TYSguy.git
     build_command: pip install -r requirements.txt
-    run_command: gunicorn app:app
+    run_command: gunicorn main_app:app
     envs:
       - key: FLASK_ENV
         scope: RUN_AND_BUILD_TIME
