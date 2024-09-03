@@ -1,0 +1,246 @@
+# Configuration
+$config = @{
+    DO_API_TOKEN          = $env:DO_API_TOKEN
+    DROPLET_NAME          = "ADHD-2E-Agent-Droplet"
+    REGION                = "syd1"
+    SIZE                  = "s-2vcpu-4gb"
+    IMAGE                 = "ubuntu-20-04-x64"
+    SSH_KEY_FINGERPRINT   = $env:DO_SSH_KEY_FINGERPRINT
+    POSTGRES_PASSWORD     = [System.Guid]::NewGuid().ToString()
+    HASURA_ADMIN_SECRET   = [System.Guid]::NewGuid().ToString()
+    LETS_ENCRYPT_EMAIL    = "your-email@example.com"
+    DOMAIN_NAME           = "your-domain.com"
+    OPENAI_API_KEY        = $env:OPENAI_API_KEY
+    ANTHROPIC_API_KEY     = $env:ANTHROPIC_API_KEY
+    GOOGLE_AI_API_KEY     = $env:GOOGLE_AI_API_KEY
+    RABBITMQ_DEFAULT_USER = "adhd_agent"
+    RABBITMQ_DEFAULT_PASS = [System.Guid]::NewGuid().ToString()
+    JWT_SECRET            = $env:JWT_SECRET
+}
+
+function Write-Log {
+    param([string]$Message, [string]$Level = "INFO")
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Write-Output "[$timestamp] $Level: $Message"
+}
+
+function Handle-Error {
+    param($ErrorMessage)
+    Write-Log $ErrorMessage "ERROR"
+    exit 1
+}
+
+function Create-Droplet {
+    param($config)
+    try {
+        Write-Log "Creating DigitalOcean Droplet..."
+        doctl auth init --access-token $config.DO_API_TOKEN
+        $droplet = doctl compute droplet create $config.DROPLET_NAME `
+            --region $config.REGION `
+            --size $config.SIZE `
+            --image $config.IMAGE `
+            --ssh-keys $config.SSH_KEY_FINGERPRINT `
+            --wait `
+            --format ID,PublicIPv4 `
+            --no-header | ConvertFrom-Csv
+        $dropletIP = $droplet.PublicIPv4
+        Write-Log "Droplet created with IP: $dropletIP"
+        return $dropletIP
+    } catch {
+        Handle-Error "Failed to create droplet: $_"
+    }
+}
+
+function Install-Docker {
+    param($dropletIP)
+    try {
+        Write-Log "Installing Docker on the Droplet..."
+        ssh -o StrictHostKeyChecking=no root@$dropletIP @"
+apt-get update
+apt-get install -y apt-transport-https ca-certificates curl software-properties-common
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable"
+apt-get update
+apt-get install -y docker-ce docker-compose
+usermod -aG docker root
+"@
+    } catch {
+        Handle-Error "Failed to install Docker: $_"
+    }
+}
+
+function Create-DatabaseCluster {
+    param($config)
+    try {
+        Write-Log "Creating PostgreSQL database cluster..."
+        $dbCluster = doctl databases create adhd-db-cluster `
+            --engine pg `
+            --num-nodes 1 `
+            --region $config.REGION `
+            --size db-s-1vcpu-1gb `
+            --version 13 `
+            --wait `
+            --format ID,Connection `
+            --no-header | ConvertFrom-Csv
+        $dbConnection = $dbCluster.Connection
+        Write-Log "Database cluster created. Connection string: $dbConnection"
+        return $dbConnection
+    } catch {
+        Handle-Error "Failed to create database cluster: $_"
+    }
+}
+
+function Setup-Hasura {
+    param($dropletIP, $dbConnection, $config)
+    try {
+        Write-Log "Setting up Hasura GraphQL engine..."
+        ssh -o StrictHostKeyChecking=no root@$dropletIP @"
+docker run -d --name hasura \
+    -p 8080:8080 \
+    -e HASURA_GRAPHQL_DATABASE_URL='$dbConnection' \
+    -e HASURA_GRAPHQL_ENABLE_CONSOLE=true \
+    -e HASURA_GRAPHQL_ADMIN_SECRET='$($config.HASURA_ADMIN_SECRET)' \
+    -e HASURA_GRAPHQL_JWT_SECRET='{"type":"HS256", "key": "your-jwt-secret-key"}' \
+    hasura/graphql-engine:latest
+"@
+        Write-Log "Hasura GraphQL engine set up successfully"
+    } catch {
+        Handle-Error "Failed to set up Hasura: $_"
+    }
+}
+
+function Setup-HTTPS {
+    param($dropletIP, $config)
+    try {
+        Write-Log "Setting up HTTPS with Let's Encrypt..."
+        ssh -o StrictHostKeyChecking=no root@$dropletIP @"
+apt-get update
+apt-get install -y certbot python3-certbot-nginx
+certbot --nginx -d $($config.DOMAIN_NAME) --non-interactive --agree-tos -m $($config.LETS_ENCRYPT_EMAIL)
+"@
+        Write-Log "HTTPS setup complete"
+    } catch {
+        Handle-Error "Failed to set up HTTPS: $_"
+    }
+}
+
+function Setup-Monitoring {
+    param($dropletIP)
+    try {
+        Write-Log "Setting up monitoring..."
+        ssh -o StrictHostKeyChecking=no root@$dropletIP @"
+docker run -d --name prometheus -p 9090:9090 prom/prometheus
+docker run -d --name grafana -p 3000:3000 grafana/grafana
+"@
+        Write-Log "Monitoring setup complete"
+    } catch {
+        Handle-Error "Failed to set up monitoring: $_"
+    }
+}
+
+function Create-DockerComposeFile {
+    param($config)
+    $dockerCompose = @"
+version: '3.8'
+services:
+  rabbitmq:
+    image: "rabbitmq:3-management"
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: $($config.RABBITMQ_DEFAULT_USER)
+      RABBITMQ_DEFAULT_PASS: $($config.RABBITMQ_DEFAULT_PASS)
+  task-breakdown-service:
+    build: ./task-breakdown-service
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=$($config.RABBITMQ_DEFAULT_USER)
+      - RABBITMQ_PASS=$($config.RABBITMQ_DEFAULT_PASS)
+      - OPENAI_API_KEY=$($config.OPENAI_API_KEY)
+  time-management-service:
+    build: ./time-management-service
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=$($config.RABBITMQ_DEFAULT_USER)
+      - RABBITMQ_PASS=$($config.RABBITMQ_DEFAULT_PASS)
+      - ANTHROPIC_API_KEY=$($config.ANTHROPIC_API_KEY)
+  focus-techniques-service:
+    build: ./focus-techniques-service
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=$($config.RABBITMQ_DEFAULT_USER)
+      - RABBITMQ_PASS=$($config.RABBITMQ_DEFAULT_PASS)
+      - GOOGLE_AI_API_KEY=$($config.GOOGLE_AI_API_KEY)
+  learning-strategies-service:
+    build: ./learning-strategies-service
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=$($config.RABBITMQ_DEFAULT_USER)
+      - RABBITMQ_PASS=$($config.RABBITMQ_DEFAULT_PASS)
+      - OPENAI_API_KEY=$($config.OPENAI_API_KEY)
+  emotional-regulation-service:
+    build: ./emotional-regulation-service
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=$($config.RABBITMQ_DEFAULT_USER)
+      - RABBITMQ_PASS=$($config.RABBITMQ_DEFAULT_PASS)
+      - ANTHROPIC_API_KEY=$($config.ANTHROPIC_API_KEY)
+  response-aggregator-service:
+    build: ./response-aggregator-service
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=$($config.RABBITMQ_DEFAULT_USER)
+      - RABBITMQ_PASS=$($config.RABBITMQ_DEFAULT_PASS)
+      - HASURA_GRAPHQL_ENDPOINT=http://hasura:8080/v1/graphql
+      - HASURA_ADMIN_SECRET=$($config.HASURA_ADMIN_SECRET)
+  rate-limiter:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "3000:3000"
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=$($config.RABBITMQ_DEFAULT_USER)
+      - RABBITMQ_PASS=$($config.RABBITMQ_DEFAULT_PASS)
+      - REDIS_HOST=rate-limiter
+      - JWT_SECRET=$($config.JWT_SECRET)
+      - HASURA_GRAPHQL_ENDPOINT=http://hasura:8080/v1/graphql
+      - HASURA_ADMIN_SECRET=$($config.HASURA_ADMIN_SECRET)
+"@
+    $dockerCompose | Out-File -FilePath "./docker-compose.yml" -Encoding UTF8
+}
+
+function Create-Microservices {
+    # This function would contain the code to create all microservice files
+    # For brevity, I'll just include a placeholder here
+    Write-Log "Creating microservice files..."
+    # Add code to create microservice files here
+}
+
+# Main execution
+function Main {
+    try {
+        Write-Log "Starting ADHD 2E Agent infrastructure and microservices setup..."
+        $dropletIP = Create-Droplet -config $config
+        Install-Docker -dropletIP $dropletIP
+        $dbConnection = Create-DatabaseCluster -config $config
+        Setup-Hasura -dropletIP $dropletIP -dbConnection $dbConnection -config $config
+        Setup-HTTPS -dropletIP $dropletIP -config $config
+        Setup-Monitoring -dropletIP $dropletIP
+        Create-DockerComposeFile -config $config
+        Create-Microservices
+        Write-Log "ADHD 2E Agent setup completed successfully!"
+        Write-Log "Droplet IP: $dropletIP"
+        Write-Log "Database Connection: $dbConnection"
+        Write-Log "Hasura Admin Secret: $($config.HASURA_ADMIN_SECRET)"
+    } catch {
+        Handle-Error "Setup failed: $_"
+    }
+}
+
+# Run the main function
+Main

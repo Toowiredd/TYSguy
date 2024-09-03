@@ -1,0 +1,20 @@
+# Common\Config.ps1
+
+$config = @{
+    DO_API_TOKEN          = $env:DO_API_TOKEN
+    DROPLET_NAME          = "ADHD-2E-Agent-Droplet"
+    REGION                = "syd1"
+    SIZE                  = "s-2vcpu-4gb"
+    IMAGE                 = "ubuntu-20-04-x64"
+    SSH_KEY_FINGERPRINT   = $env:DO_SSH_KEY_FINGERPRINT
+    POSTGRES_PASSWORD     = [System.Guid]::NewGuid().ToString()
+    HASURA_ADMIN_SECRET   = [System.Guid]::NewGuid().ToString()
+    LETS_ENCRYPT_EMAIL    = "your-email@example.com"
+    DOMAIN_NAME           = "your-domain.com"
+    OPENAI_API_KEY        = $env:OPENAI_API_KEY
+    ANTHROPIC_API_KEY     = $env:ANTHROPIC_API_KEY
+    GOOGLE_AI_API_KEY     = $env:GOOGLE_AI_API_KEY
+    RABBITMQ_DEFAULT_USER = "adhd_agent"
+    RABBITMQ_DEFAULT_PASS = [System.Guid]::NewGuid().ToString()
+    JWT_SECRET            = $env:JWT_SECRET
+}

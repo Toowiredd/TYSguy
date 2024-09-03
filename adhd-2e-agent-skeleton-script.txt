@@ -1,0 +1,58 @@
+# ADHD 2E Agent - Main Skeleton Script
+
+# Import common functions and configurations
+. .\Common\Config.ps1
+. .\Common\Logging.ps1
+. .\Common\ErrorHandling.ps1
+
+# Infrastructure Setup
+. .\Infrastructure\CreateDroplet.ps1
+. .\Infrastructure\InstallDocker.ps1
+. .\Infrastructure\CreateDatabaseCluster.ps1
+. .\Infrastructure\SetupHasura.ps1
+. .\Infrastructure\SetupHTTPS.ps1
+. .\Infrastructure\SetupMonitoring.ps1
+
+# Microservices Setup
+. .\Microservices\CreateDockerCompose.ps1
+. .\Microservices\TaskBreakdownService.ps1
+. .\Microservices\TimeManagementService.ps1
+. .\Microservices\FocusTechniquesService.ps1
+. .\Microservices\LearningStrategiesService.ps1
+. .\Microservices\EmotionalRegulationService.ps1
+. .\Microservices\ResponseAggregatorService.ps1
+. .\Microservices\APIGateway.ps1
+
+function Main {
+    try {
+        Write-Log "Starting ADHD 2E Agent setup..."
+
+        # Infrastructure setup
+        $dropletIP = Create-Droplet
+        Install-Docker -DropletIP $dropletIP
+        $dbConnection = Create-DatabaseCluster
+        Setup-Hasura -DropletIP $dropletIP -DBConnection $dbConnection
+        Setup-HTTPS -DropletIP $dropletIP
+        Setup-Monitoring -DropletIP $dropletIP
+
+        # Microservices setup
+        Create-DockerComposeFile
+        Setup-TaskBreakdownService
+        Setup-TimeManagementService
+        Setup-FocusTechniquesService
+        Setup-LearningStrategiesService
+        Setup-EmotionalRegulationService
+        Setup-ResponseAggregatorService
+        Setup-APIGateway
+
+        Write-Log "ADHD 2E Agent setup completed successfully!"
+        Write-Log "Droplet IP: $dropletIP"
+        Write-Log "Database Connection: $dbConnection"
+    }
+    catch {
+        Handle-Error "Setup failed: $_"
+    }
+}
+
+# Run the main function
+Main

@@ -1,0 +1,22 @@
+# Infrastructure\CreateDroplet.ps1
+
+function Create-Droplet {
+    try {
+        Write-Log "Creating DigitalOcean Droplet..."
+        doctl auth init --access-token $config.DO_API_TOKEN
+        $droplet = doctl compute droplet create $config.DROPLET_NAME `
+            --region $config.REGION `
+            --size $config.SIZE `
+            --image $config.IMAGE `
+            --ssh-keys $config.SSH_KEY_FINGERPRINT `
+            --wait `
+            --format ID,PublicIPv4 `
+            --no-header | ConvertFrom-Csv
+        $dropletIP = $droplet.PublicIPv4
+        Write-Log "Droplet created with IP: $dropletIP"
+        return $dropletIP
+    }
+    catch {
+        Handle-Error "Failed to create droplet: $_"
+    }
+}
