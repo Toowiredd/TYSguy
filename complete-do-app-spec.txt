@@ -1,0 +1,66 @@
+name: adhd-2e-agent
+region: syd
+services:
+  - name: web
+    git:
+      branch: main
+      repo_clone_url: https://github.com/Toowiredd/TYSguy.git
+    build_command: pip install -r requirements.txt
+    run_command: gunicorn app:app
+    envs:
+      - key: FLASK_ENV
+        scope: RUN_AND_BUILD_TIME
+        value: production
+      - key: JWT_SECRET
+        scope: RUN_AND_BUILD_TIME
+        value: ${JWT_SECRET}
+      - key: HASURA_GRAPHQL_ENDPOINT
+        scope: RUN_AND_BUILD_TIME
+        value: ${HASURA_GRAPHQL_ENDPOINT}
+      - key: HASURA_ADMIN_SECRET
+        scope: RUN_AND_BUILD_TIME
+        value: ${HASURA_ADMIN_SECRET}
+      - key: OPENAI_API_KEY
+        scope: RUN_AND_BUILD_TIME
+        value: ${OPENAI_API_KEY}
+      - key: ANTHROPIC_API_KEY
+        scope: RUN_AND_BUILD_TIME
+        value: ${ANTHROPIC_API_KEY}
+      - key: GOOGLE_AI_API_KEY
+        scope: RUN_AND_BUILD_TIME
+        value: ${GOOGLE_AI_API_KEY}
+      - key: SMTP_SERVER
+        scope: RUN_AND_BUILD_TIME
+        value: ${SMTP_SERVER}
+      - key: SMTP_PORT
+        scope: RUN_AND_BUILD_TIME
+        value: ${SMTP_PORT}
+      - key: SMTP_USERNAME
+        scope: RUN_AND_BUILD_TIME
+        value: ${SMTP_USERNAME}
+      - key: SMTP_PASSWORD
+        scope: RUN_AND_BUILD_TIME
+        value: ${SMTP_PASSWORD}
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    routes:
+      - path: /
+    health_check:
+      http_path: /health
+databases:
+  - engine: PG
+    name: adhd-2e-db
+    num_nodes: 1
+    size: db-s-dev-database
+    version: "12"
+jobs:
+  - name: db-migration
+    kind: PRE_DEPLOY
+    git:
+      repo_clone_url: https://github.com/Toowiredd/TYSguy.git
+      branch: main
+    run_command: python manage.py db upgrade
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: ${adhd-2e-db.DATABASE_URL}
