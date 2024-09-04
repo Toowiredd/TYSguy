@@ -1,0 +1,283 @@
+databases:
+  - name: user-data-db
+    engine: postgres
+    version: 13
+    plan: standard
+    properties:
+      - key: POSTGRES_USER
+        value: admin
+      - key: POSTGRES_PASSWORD
+        value: securepassword
+      - key: POSTGRES_DB
+        value: userdata
+
+  - name: task-management-db
+    engine: postgres
+    version: 13
+    plan: standard
+    properties:
+      - key: POSTGRES_USER
+        value: admin
+      - key: POSTGRES_PASSWORD
+        value: securepassword
+      - key: POSTGRES_DB
+        value: taskdb
+
+  - name: notifications-db
+    engine: postgres
+    version: 13
+    plan: standard
+    properties:
+      - key: POSTGRES_USER
+        value: admin
+      - key: POSTGRES_PASSWORD
+        value: securepassword
+      - key: POSTGRES_DB
+        value: notifications
+
+  - name: ai-memory
+    engine: mongodb
+    version: 4.4
+    plan: standard
+    properties:
+      - key: MONGO_INITDB_ROOT_USERNAME
+        value: root
+      - key: MONGO_INITDB_ROOT_PASSWORD
+        value: securepassword
+
+  - name: logs-and-metrics-db
+    engine: influxdb
+    version: 1.8
+    plan: standard
+    properties:
+      - key: INFLUXDB_ADMIN_USER
+        value: admin
+      - key: INFLUXDB_ADMIN_PASSWORD
+        value: securepassword
+
+services:
+  - type: web
+    name: main-app
+    env: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn main_app:app --log-level info"
+    autoscale:
+      minInstances: 1
+      maxInstances: 5
+    envVars:
+      - key: JWT_SECRET
+        value: ${JWT_SECRET}  # Securely encrypted
+      - key: FLASK_ENV
+        value: production
+      - key: HASURA_GRAPHQL_ENDPOINT
+        value: ${HASURA_GRAPHQL_ENDPOINT}
+      - key: LOG_LEVEL
+        value: info
+      - key: OPENAI_API_KEY
+        value: ${OPENAI_API_KEY}
+      - key: ANTHROPIC_API_KEY
+        value: ${ANTHROPIC_API_KEY}
+      - key: SMTP_HOST
+        value: ${SMTP_HOST}
+      - key: SMTP_PORT
+        value: ${SMTP_PORT}
+      - key: SMTP_USER
+        value: ${SMTP_USER}
+      - key: SMTP_PASS
+        value: ${SMTP_PASS}
+      - key: POSTGRES_USER
+        value: admin
+      - key: POSTGRES_PASSWORD
+        value: securepassword
+      - key: POSTGRES_DB
+        value: userdata
+      - key: MONGO_URI
+        value: mongodb://root:securepassword@ai-memory:27017/
+      - key: REDIS_HOST
+        value: redis
+      - key: MLFLOW_TRACKING_URI
+        value: ${MLFLOW_TRACKING_URI}
+
+  - type: background
+    name: api-gateway-service
+    env: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python api-gateway-service.py"
+    autoscale:
+      minInstances: 1
+      maxInstances: 3
+    envVars:
+      - key: RABBITMQ_HOST
+        value: rabbitmq
+      - key: REDIS_HOST
+        value: redis
+      - key: JWT_SECRET
+        value: ${JWT_SECRET}
+      - key: RATE_LIMIT
+        value: 1000
+
+  - type: background
+    name: notification-service
+    env: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python notification-service.py"
+    autoscale:
+      minInstances: 1
+      maxInstances: 3
+    envVars:
+      - key: SMTP_HOST
+        value: ${SMTP_HOST}
+      - key: SMTP_PORT
+        value: ${SMTP_PORT}
+      - key: SMTP_USER
+        value: ${SMTP_USER}
+      - key: SMTP_PASS
+        value: ${SMTP_PASS}
+      - key: RABBITMQ_HOST
+        value: rabbitmq
+      - key: POSTGRES_DB
+        value: notifications
+
+  - type: background
+    name: emotional-regulation-service
+    env: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python emotional-regulation-service.py"
+    autoscale:
+      minInstances: 1
+      maxInstances: 3
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        value: ${ANTHROPIC_API_KEY}
+      - key: RABBITMQ_HOST
+        value: rabbitmq
+      - key: LOG_LEVEL
+        value: debug
+      - key: MONGO_URI
+        value: mongodb://root:securepassword@ai-memory:27017/
+
+  - type: background
+    name: focus-techniques-service
+    env: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python focus-techniques-service.py"
+    autoscale:
+      minInstances: 1
+      maxInstances: 3
+    envVars:
+      - key: RABBITMQ_HOST
+        value: rabbitmq
+      - key: MONGO_URI
+        value: mongodb://root:securepassword@ai-memory:27017/
+
+  - type: background
+    name: learning-strategies-service
+    env: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python learning-strategies-service.py"
+    autoscale:
+      minInstances: 1
+      maxInstances: 3
+    envVars:
+      - key: OPENAI_API_KEY
+        value: ${OPENAI_API_KEY}
+      - key: RABBITMQ_HOST
+        value: rabbitmq
+      - key: MONGO_URI
+        value: mongodb://root:securepassword@ai-memory:27017/
+      - key: MLFLOW_TRACKING_URI
+        value: ${MLFLOW_TRACKING_URI}
+
+  - type: background
+    name: response-aggregator-service
+    env: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python response-aggregator-service.py"
+    autoscale:
+      minInstances: 1
+      maxInstances: 3
+    envVars:
+      - key: RABBITMQ_HOST
+        value: rabbitmq
+      - key: MONGO_URI
+        value: mongodb://root:securepassword@ai-memory:27017/
+
+  - type: background
+    name: task-breakdown-service
+    env: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python task-breakdown-service.py"
+    autoscale:
+      minInstances: 1
+      maxInstances: 3
+    envVars:
+      - key: RABBITMQ_HOST
+        value: rabbitmq
+      - key: POSTGRES_DB
+        value: taskdb
+
+  - type: background
+    name: task-scheduling-service
+    env: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python task-scheduling-service.py"
+    autoscale:
+      minInstances: 1
+      maxInstances: 3
+    envVars:
+      - key: RABBITMQ_HOST
+        value: rabbitmq
+      - key: POSTGRES_DB
+        value: taskdb
+
+  - type: background
+    name: time-management-service
+    env: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python time-management-service.py"
+    autoscale:
+      minInstances: 1
+      maxInstances: 3
+    envVars:
+      - key: RABBITMQ_HOST
+        value: rabbitmq
+      - key: MONGO_URI
+        value: mongodb://root:securepassword@ai-memory:27017/
+
+  - type: background
+    name: user-authentication-service
+    env: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python user-authentication-service.py"
+    autoscale:
+      minInstances: 1
+      maxInstances: 3
+    envVars:
+      - key: HASURA_GRAPHQL_ENDPOINT
+        value: ${HASURA_GRAPHQL_ENDPOINT}
+      - key: HASURA_ADMIN_SECRET
+        value: ${HASURA_ADMIN_SECRET}
+      - key: JWT_SECRET
+        value: ${JWT_SECRET}
+      - key: POSTGRES_DB
+        value: userdata
+
+  - type: worker
+    name: config-script
+    env: docker
+    dockerfilePath: ./Dockerfile
+    startCommand: "/bin/bash config-script.txt"
+    autoscale:
+      minInstances: 1
+      maxInstances: 2
